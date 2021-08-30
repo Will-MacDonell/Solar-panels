@@ -8,10 +8,24 @@ Solar_data_file = "Westmidlands_solar_data.mat"
 
 Solar_var_name = string(whos('-file',Solar_data_file).name);
 Chosen_solar_data = load(Solar_data_file).midasopenukradiationobsdv201901westmidlands00586winterbourneuni;
-
+ER = load('ED_data_weekly.mat').mean_week;
 
 time=Chosen_solar_data{:,21};
 rad=Chosen_solar_data{:,9}/3.600;%from kj/m2 to w/m2
+
+calculation_factor = 1.8; %this is currently a fudge factor
+solar_panel_efficiency = 0.2;%photo voltaic efficiency of panel
+latitude=52.439017; %Solar panel geographical coordinates
+longitude=-1.937303;%Solar panel geographical coordinates
+rotation=180; %Solar panel angle (0=North)
+solar_panel_surface_area = 40; %m2
+batery_size=10;%kwh - a battery allows you to store solar energy and buy electricity from the grid at a low cost to use in times when cost increases. So you can buy energy overnight for cheap and use in the day.
+electrical_sell_price = 0.055; %£ - price grid will buy surplus electricity
+electrical_buy_price_night = 0.05; %£ - price grid will sell energy at night time
+electrical_buy_price_day = 0.1389; %£ - price grid will sell energy in day time
+gas_buy_price = 0.0326; %£ - price grid will sell nat gas
+grid_connection_fee = 0.25; %£/day 
+gas_grid_connection_fee = 0.1; %£/day
 
 %% Section II - Assessing the Actual Solar Radiation Data for the Specified Location
 %This section plots the daily and hourly solar radiation data from the
@@ -66,10 +80,7 @@ set(gca,'Gridalpha',0.2,'LineWidth',1,'FontSize',16)
 for i=1:length(time)
   
 dt=datenum(time(i));
-latitude=52.439017;
-longitude=-1.937303;
 time_zone=1;
-rotation=180;
 dst=1;
 
 [angles,projection] = solarPosition(dt,latitude,longitude, time_zone,rotation,dst);
@@ -101,9 +112,6 @@ energy(q)=0;
 %of the solar plans based on the position of the sun and real solar radition
 %data for every hour of the yeat.
 
-calculation_factor = 1.8;
-
-solar_panel_efficiency = 0.2;
 
 ef = calculation_factor * solar_panel_efficiency;
 
@@ -128,7 +136,7 @@ for i=1:365
     timenum=datenum(DailyTime{i});
     timenum=(timenum-timenum(1))*24;
     
-    DailyOUTPUT(i)=trapz(timenum,DailyEnergyout{i})*38/1000;
+    DailyOUTPUT(i)=trapz(timenum,DailyEnergyout{i})*solar_panel_surface_area/1000;
     end
 end
 
@@ -190,7 +198,7 @@ for i=1:52
     timenum=datenum(WeeklyTime{i});
     timenum=(timenum-timenum(1))*24;
     
-    WeeklyOUTPUT(i)=trapz(timenum,WeeklyEnergyout{i})*38/1000;
+    WeeklyOUTPUT(i)=trapz(timenum,WeeklyEnergyout{i})*solar_panel_surface_area/1000;
     end
 end
 
@@ -228,7 +236,7 @@ for i=1:12
     timenum=datenum(MonthlyTime{i});
     timenum=(timenum-timenum(1))*24;
     
-    MonthlyOUTPUT(i)=trapz(timenum,MonthlyEnergyout{i})*38/1000;
+    MonthlyOUTPUT(i)=trapz(timenum,MonthlyEnergyout{i})*solar_panel_surface_area/1000;
     end
 end
 
@@ -257,11 +265,10 @@ set(gca,'Gridalpha',0.2,'LineWidth',1,'FontSize',15,'YColor','r')
 % introduced, and the balance sheet is calculated over the year. Energy
 % storage batteries are also introduced to show that hour cost efficiencies
 % can easily be increased.
+% 
 
-A=zeros(1,13)+18.6;
-B=zeros(1,22)+8.7;
-C=zeros(1,17)+18.6;
-ER=[A,B,C];
+ER = load('ED_data_weekly.mat').mean_week;
+
 
 figure('color','w','units','normalized','Position',[0 0 0.5 0.8])
 subplot(3,1,1)
@@ -287,16 +294,16 @@ l=length(EnergyFlow);
 cost=zeros(l,1);
 costNB=zeros(l,1);
 
-yy=10;
+
 
 for i=1:l
     if EnergyFlow(i)>0
-        cost(i)=EnergyFlow(i)*0.055*7-7*0.25;
+        cost(i)=EnergyFlow(i)*electrical_sell_price*7-7*grid_connection_fee;
     else
-       if abs(EnergyFlow(i))>yy
-           cost(i)=-yy*0.05*7-7*0.25-(abs(EnergyFlow(i))-yy)*0.1389*7;
+       if abs(EnergyFlow(i))>batery_size
+           cost(i)=-batery_size*electrical_buy_price_night*7-7*grid_connection_fee-(abs(EnergyFlow(i))-batery_size)*electrical_buy_price_day*7;
        else
-           cost(i)=EnergyFlow(i)*0.05*7-7*0.25;
+           cost(i)=EnergyFlow(i)*electrical_buy_price_night*7-7*grid_connection_fee;
        end
    end
 end
@@ -305,9 +312,9 @@ end
     
 for i=1:l
     if EnergyFlow(i)>0
-        costNB(i)=EnergyFlow(i)*0.055*7-7*0.25;
+        costNB(i)=EnergyFlow(i)*electrical_sell_price*7-7*grid_connection_fee;
     else
-           costNB(i)=(EnergyFlow(i)*0.1389*7)-7*0.25;
+           costNB(i)=(EnergyFlow(i)*electrical_buy_price_day*7)-7*grid_connection_fee;
        end
 end
 
@@ -334,8 +341,8 @@ legend('Money Flow w/ Battery','Money Flow w/o Battery')
 NormElectricity=zeros(1,52)+6.1;
 NormGas=(ER-NormElectricity)*4;
 
-NormElecP=(NormElectricity*7*0.1489+0.1919*7);
-NormGasP=(NormGas*7*0.0326+0.16*7);
+NormElecP=(NormElectricity*7*electrical_buy_price_day+grid_connection_fee*7);
+NormGasP=(NormGas*7*gas_buy_price+gas_grid_connection_fee *7);
 
 NormTot=-NormElecP-NormGasP;
 
@@ -351,6 +358,7 @@ NormTot=-NormElecP-NormGasP;
 
 NormTot=-(cumsum(NormElecP)+cumsum(NormGasP));
 
+%calculating gov busary
 addition=zeros(52,1);
 addition(13)=(50*180+10.5*(365-180))*0.2089/4;
 addition(26)=(50*180+10.5*(365-180))*0.2089/4;
@@ -360,7 +368,7 @@ addition(52)=(50*180+10.5*(365-180))*0.2089/4;
 g=cumsum(cost);
 gNB=cumsum(costNB);
 
-costjustGSHP=-ER*7*0.1489-7*0.25;
+costjustGSHP=-ER*7*electrical_buy_price_day-7*grid_connection_fee;
 
 totalProf=cumsum(cost+addition);
 totalProfNB=cumsum(costNB+addition);
